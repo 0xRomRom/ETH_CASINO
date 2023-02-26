@@ -126,10 +126,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         // Pay winner
         payable(winnerAddress).transfer(WIN_AMOUNT);
 
-        // Reset player count
-        PLAYER_COUNT = 0;
-
-        // Reset mapping and array values
+        // Reset game values
         deleteAllPlayers();
 
 
@@ -194,7 +191,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         require(PLAYERS_ARRAY.length < MAX_PLAYER_COUNT, 'Maximum playercount has been reached');
 
         // Check if player is already in game
-        require(PLAYERS[msg.sender] == 0, 'Already in game');
+        require(doesUserExist(msg.sender) != 0, 'Already in game');
 
         // Increase active players 
         PLAYER_COUNT++;
@@ -203,11 +200,11 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         addPlayer(msg.sender);
 
         // Current player count
-        uint CURRENT_PLAYER_COUNT;
-        CURRENT_PLAYER_COUNT = PLAYER_COUNT;
+        uint ACTIVE_PLAYERS;
+        ACTIVE_PLAYERS = PLAYER_COUNT;
 
         //Checks if player cap is met => pays winner
-        if (CURRENT_PLAYER_COUNT == 3) {
+        if (ACTIVE_PLAYERS == 3) {
             payWinner();
         }
       
@@ -215,11 +212,17 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
 
     // Player leaves game and is refunded
     function leaveGame() public {
-        // Check if a timestamp op entry (player join) was registered
+        uint CURRENT_PLAYERS_COUNT;
+        CURRENT_PLAYERS_COUNT = PLAYER_COUNT;
+
+        // Check if a timestamp of entry was registered
         require(doesUserExist(msg.sender) != 0 , 'User not in game');
 
-        // Can't leave if there's no players
-        require(PLAYER_COUNT > 0, "Can't leave, there's no players");
+        // Can't leave game that is in progress
+        require(CURRENT_PLAYERS_COUNT == 3, 'Game concludes soon');
+
+        // Prevents from withdrawing without depositing first
+        require(CURRENT_PLAYERS_COUNT > 0, 'Cant leave game with no players');
 
         // Decrement player count
         PLAYER_COUNT--;
@@ -235,7 +238,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     function payWinner() private {
         require(PLAYER_COUNT == 3, 'Not enough players to payout');
         require(PLAYERS_ARRAY.length == 3, 'Not enough players to payout');
-        // require(address(this).balance >= WIN_AMOUNT, 'Insufficient funsu');
+        require(address(this).balance >= WIN_AMOUNT, 'Insufficient funsu');
 
         // Pay winner logic
         requestRandomWords();
@@ -262,6 +265,15 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         // Reset mapping and array values
         deleteAllPlayers();
 
+    }
+
+    // Withdraw link from contract
+    function withdrawLink() public onlyOwner {
+        LinkTokenInterface link = LinkTokenInterface(linkAddress);
+        require(
+            link.transfer(msg.sender, link.balanceOf(address(this))),
+            "Unable to transfer"
+        );
     }
 }
 
