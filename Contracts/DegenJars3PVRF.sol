@@ -32,7 +32,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     // this limit based on the network that you select, the size of the request,
     // and the processing of the callback request in the fulfillRandomWords()
     // function.
-    uint32 callbackGasLimit = 100000;
+    uint32 callbackGasLimit = 500000;
 
     // The default is 3, but you can set this higher.
     uint16 requestConfirmations = 3;
@@ -47,7 +47,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     // address WRAPPER - hardcoded for Goerli
     address wrapperAddress = 0x708701a1DfF4f478de54383E49a627eD4852C816;
 
-    // past requests Id.
+    // Past requests Id.
     uint[] public requestIds;
     uint public lastRequestId;
 
@@ -68,7 +68,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         public s_requests; /* requestId --> requestStatus */
 
 
-    constructor() VRFV2WrapperConsumerBase(linkAddress, wrapperAddress) {
+    constructor() payable VRFV2WrapperConsumerBase(linkAddress, wrapperAddress) {
         BET_AMOUNT = 10000000000000000 wei; //0.01Eth
         WIN_AMOUNT = 28000000000000000 wei; //0.028Eth
         MAX_PLAYER_COUNT = 3;
@@ -81,8 +81,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     /* VRF Logic
     /******************/
 
-    function requestRandomWords() public
-        onlyOwner 
+    function requestRandomWords() private
         returns (uint256 requestId)
     {
         requestId = requestRandomness(
@@ -113,6 +112,27 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
             _randomWords,
             s_requests[_requestId].paid
         );
+
+        // Winner info
+        uint winnerIndex;
+        uint finalWinner;
+        address winnerAddress;
+
+        // Winner index and address
+        winnerIndex = _randomWords[0];
+        finalWinner = winnerIndex % 3;
+        winnerAddress = PLAYERS_ARRAY[finalWinner];
+
+        // Pay winner
+        payable(winnerAddress).transfer(WIN_AMOUNT);
+
+        // Reset player count
+        PLAYER_COUNT = 0;
+
+        // Reset mapping and array values
+        deleteAllPlayers();
+
+
     }
 
     /******************/
@@ -161,11 +181,17 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
 
     // Player enters game
     function enterGame() public payable {
+        uint CURRENT_PLAYERS_COUNT;
+        CURRENT_PLAYERS_COUNT = PLAYER_COUNT;
+
         // Check if player has sufficient funds to enter the game
         require(msg.value >= BET_AMOUNT, 'Pay more ether to enter the game');
 
         // Check if the player cap has not been exceeded
-        require(PLAYER_COUNT < MAX_PLAYER_COUNT, 'Maximum playercount has been reached');
+        require(CURRENT_PLAYERS_COUNT < MAX_PLAYER_COUNT, 'Maximum playercount has been reached');
+
+        // Check if the player cap has not been exceeded
+        require(PLAYERS_ARRAY.length < MAX_PLAYER_COUNT, 'Maximum playercount has been reached');
 
         // Check if player is already in game
         require(PLAYERS[msg.sender] == 0, 'Already in game');
@@ -209,16 +235,10 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     function payWinner() private {
         require(PLAYER_COUNT == 3, 'Not enough players to payout');
         require(PLAYERS_ARRAY.length == 3, 'Not enough players to payout');
-        require(address(this).balance >= WIN_AMOUNT, 'Insufficient funsu');
+        // require(address(this).balance >= WIN_AMOUNT, 'Insufficient funsu');
 
-        // Reset player count
-        PLAYER_COUNT = 0;
-
-        // Reset mapping and array values
-        deleteAllPlayers();
-
-        // Pay winner logic (hardcoded to deployoor for the minute)
-        payable(DEPLOYOOR).transfer(WIN_AMOUNT);
+        // Pay winner logic
+        requestRandomWords();
     }
 
     //Emergency contract reset, refunds users and withdraws remaining funds
@@ -237,7 +257,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         }
 
         // Withdraw remaining contract funds
-        payable(msg.sender).transfer(address(this).balance);
+        payable(DEPLOYOOR).transfer(address(this).balance);
 
         // Reset mapping and array values
         deleteAllPlayers();
