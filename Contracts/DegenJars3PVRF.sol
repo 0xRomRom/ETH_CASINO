@@ -57,7 +57,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     address public lastGameWinner;
 
     // Initial contract deposit: 20000000000000000
-    constructor() VRFV2WrapperConsumerBase(linkAddress, wrapperAddress) {
+    constructor() payable VRFV2WrapperConsumerBase(linkAddress, wrapperAddress) {
         BET_AMOUNT = 10000000000000000 wei; //0.01Eth
         WIN_AMOUNT = 28000000000000000 wei; //0.028Eth
         MAX_PLAYER_COUNT = 3;
@@ -91,6 +91,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         uint256[] memory _randomWords
     ) internal override {
         require(requestPaid > 0, "request not found");
+        require(PLAYER_COUNT > 2, "Not enough players");
 
         requestPaid = 0;
 
