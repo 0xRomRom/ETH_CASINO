@@ -20,12 +20,11 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     uint public MAX_PLAYER_COUNT;
 
     // Active players in Jar
-    mapping(address => uint) public PLAYERS;
+    mapping(address => bool) public PLAYERS;
     address[] public PLAYERS_ARRAY;
 
     // Current player count
     uint public PLAYER_COUNT;
-
 
     // Depends on the number of requested values that you want sent to the
     // fulfillRandomWords() function. Test and adjust
@@ -37,7 +36,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     // The default is 3, but you can set this higher.
     uint16 requestConfirmations = 3;
 
-    // For this example, retrieve 2 random values in one request.
+    // For this example, retrieve 1 random values in one request.
     // Cannot exceed VRFV2Wrapper.getConfig().maxNumWords.
     uint32 numWords = 1;
 
@@ -47,35 +46,27 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     // address WRAPPER - hardcoded for Goerli
     address wrapperAddress = 0x708701a1DfF4f478de54383E49a627eD4852C816;
 
-    // Past requests Id.
-    uint[] public requestIds;
-    uint public lastRequestId;
+    // Check if VRF call was paid
+    uint private requestPaid;
 
-    event RequestSent(uint256 requestId, uint32 numWords);
-    event RequestFulfilled(
-        uint256 requestId,
-        uint256[] randomWords,
-        uint256 payment
-    );
+    // GameEvents
+    event PlayerJoined(address player, uint timeEntered);
+    event PlayerLeft(address player, uint timeLeft);
+    event GameWinner(address winner, uint winTimeStamp);
 
-    struct RequestStatus {
-    uint256 paid; // amount paid in link
-    bool fulfilled; // whether the request has been successfully fulfilled
-    uint256[] randomWords; // resulting words
-    }
+    address public lastGameWinner;
 
-    mapping(uint256 => RequestStatus)
-        public s_requests; /* requestId --> requestStatus */
-
-
-    constructor() payable VRFV2WrapperConsumerBase(linkAddress, wrapperAddress) {
+    // Initial contract deposit: 20000000000000000
+    constructor() VRFV2WrapperConsumerBase(linkAddress, wrapperAddress) {
         BET_AMOUNT = 10000000000000000 wei; //0.01Eth
         WIN_AMOUNT = 28000000000000000 wei; //0.028Eth
         MAX_PLAYER_COUNT = 3;
         PLAYER_COUNT = 0;
+        requestPaid = 0;
         DEPLOYOOR = payable(msg.sender);
         
     }
+    
 
     /******************/
     /* VRF Logic
@@ -89,14 +80,9 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
             requestConfirmations,
             numWords
         );
-        s_requests[requestId] = RequestStatus({
-            paid: VRF_V2_WRAPPER.calculateRequestPrice(callbackGasLimit),
-            randomWords: new uint256[](0),
-            fulfilled: false
-        });
-        requestIds.push(requestId);
-        lastRequestId = requestId;
-        emit RequestSent(requestId, numWords);
+
+        requestPaid = VRF_V2_WRAPPER.calculateRequestPrice(callbackGasLimit);
+
         return requestId;
     }
 
@@ -104,14 +90,13 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         uint256 _requestId,
         uint256[] memory _randomWords
     ) internal override {
-        require(s_requests[_requestId].paid > 0, "request not found");
-        s_requests[_requestId].fulfilled = true;
-        s_requests[_requestId].randomWords = _randomWords;
-        emit RequestFulfilled(
-            _requestId,
-            _randomWords,
-            s_requests[_requestId].paid
-        );
+        require(requestPaid > 0, "request not found");
+
+        requestPaid = 0;
+
+        //Store function param (unused)
+        uint reqID;
+        reqID = _requestId;
 
         // Winner info
         uint winnerIndex;
@@ -126,9 +111,13 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         // Pay winner
         payable(winnerAddress).transfer(WIN_AMOUNT);
 
+        // Announce winner
+        emit GameWinner(winnerAddress, block.timestamp);
+        lastGameWinner = winnerAddress;
+
         // Reset game values
         deleteAllPlayers();
-
+        requestPaid = 0;
 
     }
 
@@ -138,8 +127,9 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
 
     // Helper function that handles adding new player to mapping and array    
     function addPlayer(address _address) private {
-        PLAYERS[_address] = block.timestamp;
+        PLAYERS[_address] = true;
         PLAYERS_ARRAY.push(_address);
+        emit PlayerJoined(_address, block.timestamp);
     }
 
     // Helper function to remove player from the game (clears mapping and array)
@@ -154,6 +144,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
             break;
             }
         }
+        emit PlayerLeft(_address, block.timestamp);
     }
 
     // Helper function to delete all players from mapping and array
@@ -168,8 +159,8 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
     }
 
     // Checks if player exists in player mapping
-    function doesUserExist(address _player) public view returns (uint) {
-        return PLAYERS[_player];
+    function doesUserExist(address _player) public view returns (bool) {
+        return PLAYERS[_player] == true;
     }
 
     /******************/
@@ -191,7 +182,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         require(PLAYERS_ARRAY.length < MAX_PLAYER_COUNT, 'Maximum playercount has been reached');
 
         // Check if player is already in game
-        require(doesUserExist(msg.sender) != 0, 'Already in game');
+        require(!doesUserExist(msg.sender), 'Already in game');
 
         // Increase active players 
         PLAYER_COUNT++;
@@ -216,10 +207,10 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         CURRENT_PLAYERS_COUNT = PLAYER_COUNT;
 
         // Check if a timestamp of entry was registered
-        require(doesUserExist(msg.sender) != 0 , 'User not in game');
+        require(doesUserExist(msg.sender), 'User not in game');
 
         // Can't leave game that is in progress
-        require(CURRENT_PLAYERS_COUNT == 3, 'Game concludes soon');
+        require(CURRENT_PLAYERS_COUNT < 3, 'Game concludes soon');
 
         // Prevents from withdrawing without depositing first
         require(CURRENT_PLAYERS_COUNT > 0, 'Cant leave game with no players');
