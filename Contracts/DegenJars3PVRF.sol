@@ -21,7 +21,7 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
 
     // Active players in Jar
     mapping(address => bool) public PLAYERS;
-    address[] public PLAYERS_ARRAY;
+    address[3] public PLAYERS_ARRAY;
 
     // Current player count
     uint public PLAYER_COUNT;
@@ -191,12 +191,8 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
         // Add player to active players list
         addPlayer(msg.sender);
 
-        // Current player count
-        uint ACTIVE_PLAYERS;
-        ACTIVE_PLAYERS = PLAYER_COUNT;
-
         //Checks if player cap is met => pays winner
-        if (ACTIVE_PLAYERS == 3) {
+        if (PLAYER_COUNT == 3) {
             payWinner();
         }
       
@@ -204,17 +200,14 @@ contract BetJars is Ownable, VRFV2WrapperConsumerBase {
 
     // Player leaves game and is refunded
     function leaveGame() public {
-        uint CURRENT_PLAYERS_COUNT;
-        CURRENT_PLAYERS_COUNT = PLAYER_COUNT;
-
         // Check if a timestamp of entry was registered
         require(doesUserExist(msg.sender), 'User not in game');
 
         // Can't leave game that is in progress
-        require(CURRENT_PLAYERS_COUNT < 3, 'Game concludes soon');
+        require(PLAYER_COUNT < 3, 'Game concludes soon');
 
         // Prevents from withdrawing without depositing first
-        require(CURRENT_PLAYERS_COUNT > 0, 'Cant leave game with no players');
+        require(PLAYER_COUNT > 0, 'Cant leave game with no players');
 
         // Decrement player count
         PLAYER_COUNT--;
